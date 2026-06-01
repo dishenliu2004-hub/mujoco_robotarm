@@ -153,8 +153,7 @@ class UR5RobotiqGraspEnv(gym.Env):
         cube_out_of_workspace = self._cube_out_of_workspace()
         terminated = success or cube_out_of_workspace
         truncated = self._step_count >= self.max_episode_steps
-        info = self._info()
-        info.update(reward_terms)
+        info = self._info(reward_terms)
         info["cube_out_of_workspace"] = bool(cube_out_of_workspace)
         info["is_success"] = bool(success)
 
@@ -220,9 +219,11 @@ class UR5RobotiqGraspEnv(gym.Env):
         target_pos = self.data.site_xpos[self.target_site_id]
 
         gripper_open = float(np.mean(self.data.qpos[self.finger_qpos_addr]))
-        cube_lift_height = float(max(0.0, cube_pos[2] - self.table_top_z))
+        raw_cube_lift_height = float(cube_pos[2] - self.table_top_z)
+        cube_lift_height = float(np.clip(raw_cube_lift_height, 0.0, 0.25))
         ee_cube_distance = float(np.linalg.norm(ee_pos - cube_pos))
         dist_cube_target = float(np.linalg.norm(cube_pos - target_pos))
+        cube_out = self._cube_out_of_workspace()
 
         pregrasp_pos = cube_pos.copy()
         pregrasp_pos[2] = self.table_top_z + 0.16
@@ -239,8 +240,15 @@ class UR5RobotiqGraspEnv(gym.Env):
         is_near_grasp = xy_dist < 0.055 and height_error < 0.055
         reward_close_gripper = 1.0 if is_near_grasp and gripper_open < 0.025 else 0.0
 
-        reward_lift = 20.0 * cube_lift_height
+        is_near_cube = ee_cube_distance < 0.12
+        is_gripper_closed = gripper_open < 0.03
+        is_likely_grasping = is_near_cube and is_gripper_closed
+
+        reward_lift = 25.0 * cube_lift_height if is_likely_grasping else 0.0
         reward_target = 3.0 * np.exp(-6.0 * dist_cube_target) if cube_lift_height > 0.04 else 0.0
+        if cube_out:
+            reward_lift = 0.0
+            reward_target = 0.0
 
         last_action = getattr(self, "last_action", np.zeros(7, dtype=np.float64))
         action_penalty = 0.01 * float(np.sum(np.square(last_action[:6])))
@@ -257,8 +265,8 @@ class UR5RobotiqGraspEnv(gym.Env):
         if self._is_success():
             reward += 25.0
 
-        if self._cube_out_of_workspace():
-            reward -= 30.0
+        if cube_out:
+            reward = -50.0
 
         return reward, {
             "reward_dist": float(-ee_cube_distance),
@@ -271,11 +279,13 @@ class UR5RobotiqGraspEnv(gym.Env):
             "reward_action_penalty": float(-action_penalty),
             "cube_height": float(cube_pos[2]),
             "cube_lift_height": float(cube_lift_height),
+            "raw_cube_lift_height": float(raw_cube_lift_height),
             "ee_cube_distance": float(ee_cube_distance),
             "dist_cube_target": float(dist_cube_target),
             "gripper_open": float(gripper_open),
             "xy_dist": float(xy_dist),
             "height_error": float(height_error),
+            "is_likely_grasping": float(is_likely_grasping),
         }
 
     def _is_success(self) -> bool:
@@ -304,12 +314,12 @@ class UR5RobotiqGraspEnv(gym.Env):
             or ee_cube_distance > 1.5
         )
 
-    def _info(self) -> dict[str, Any]:
+    def _info(self, reward_terms: dict[str, float] | None = None) -> dict[str, Any]:
         ee_pos = self.data.site_xpos[self.ee_site_id].copy()
         cube_pos = self.data.xpos[self.cube_body_id].copy()
         target_pos = self.data.site_xpos[self.target_site_id].copy()
-        reward, reward_terms = self._reward()
-        del reward
+        if reward_terms is None:
+            _, reward_terms = self._reward()
         return {
             "step": self._step_count,
             "is_success": bool(self._is_success()),
@@ -317,7 +327,7 @@ class UR5RobotiqGraspEnv(gym.Env):
             "cube_pos": cube_pos,
             "ee_pos": ee_pos,
             "cube_height": float(cube_pos[2]),
-            "cube_lift_height": float(max(0.0, cube_pos[2] - self.table_top_z)),
+            "cube_lift_height": float(np.clip(cube_pos[2] - self.table_top_z, 0.0, 0.25)),
             "ee_cube_distance": float(np.linalg.norm(ee_pos - cube_pos)),
             "dist_cube_target": float(np.linalg.norm(cube_pos - target_pos)),
             "gripper_open": float(np.mean(self.data.qpos[self.finger_qpos_addr])),
