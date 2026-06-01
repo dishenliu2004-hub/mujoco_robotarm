@@ -30,6 +30,7 @@ EPISODE_FIELDS = [
     "mean_ee_cube_distance",
     "final_ee_cube_distance",
     "min_ee_cube_distance",
+    "cube_out_of_workspace_count",
     "final_dist_cube_target",
 ]
 
@@ -43,9 +44,16 @@ STEP_FIELDS = [
     "dist_cube_target",
     "gripper_open",
     "reward_dist",
+    "reward_pregrasp",
+    "reward_xy_align",
+    "reward_height_align",
+    "reward_close_gripper",
     "reward_lift",
     "reward_target",
     "reward_action_penalty",
+    "xy_dist",
+    "height_error",
+    "cube_out_of_workspace",
     "is_success",
 ]
 
@@ -68,13 +76,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--plot-path", type=Path, default=None)
     parser.add_argument("--save-step-metrics", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--plot-after-eval", action="store_true")
+    parser.add_argument("--curriculum-level", type=int, default=0)
+    parser.add_argument("--max-episode-steps", type=int, default=250)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     render_mode = None if args.no_render else "human"
-    env = UR5RobotiqGraspEnv(render_mode=render_mode)
+    env = UR5RobotiqGraspEnv(
+        render_mode=render_mode,
+        curriculum_level=args.curriculum_level,
+        max_episode_steps=args.max_episode_steps,
+    )
     model = PPO.load(args.model)
     episode_logger = DictCsvLogger(args.csv_path, EPISODE_FIELDS)
     step_csv_path = args.csv_path.parent / "eval_step_metrics.csv"
@@ -89,6 +103,7 @@ def main() -> None:
             steps = 0
             lift_heights: list[float] = []
             distances: list[float] = []
+            cube_out_of_workspace_count = 0
             final_metric = None
             while not done:
                 action, _ = model.predict(obs, deterministic=args.deterministic)
@@ -108,6 +123,7 @@ def main() -> None:
                     lift_heights.append(metric.cube_lift_height)
                 if math.isfinite(metric.ee_cube_distance):
                     distances.append(metric.ee_cube_distance)
+                cube_out_of_workspace_count += int(metric.cube_out_of_workspace)
                 if step_logger is not None:
                     step_logger.write_row(
                         {
@@ -120,9 +136,16 @@ def main() -> None:
                             "dist_cube_target": metric.dist_cube_target,
                             "gripper_open": metric.gripper_open,
                             "reward_dist": metric.reward_dist,
+                            "reward_pregrasp": metric.reward_pregrasp,
+                            "reward_xy_align": metric.reward_xy_align,
+                            "reward_height_align": metric.reward_height_align,
+                            "reward_close_gripper": metric.reward_close_gripper,
                             "reward_lift": metric.reward_lift,
                             "reward_target": metric.reward_target,
                             "reward_action_penalty": metric.reward_action_penalty,
+                            "xy_dist": metric.xy_dist,
+                            "height_error": metric.height_error,
+                            "cube_out_of_workspace": metric.cube_out_of_workspace,
                             "is_success": metric.is_success,
                         }
                     )
@@ -143,6 +166,7 @@ def main() -> None:
                     "mean_ee_cube_distance": float(np.mean(distances)) if distances else math.nan,
                     "final_ee_cube_distance": final_distance,
                     "min_ee_cube_distance": min(distances) if distances else math.nan,
+                    "cube_out_of_workspace_count": cube_out_of_workspace_count,
                     "final_dist_cube_target": final_target_distance,
                 }
             )

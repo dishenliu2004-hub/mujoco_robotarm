@@ -17,6 +17,7 @@ EPISODE_FIELDS = [
     "episode_reward",
     "episode_length",
     "episode_success",
+    "episode_cube_out_of_workspace",
     "episode_max_cube_lift_height",
     "episode_mean_ee_cube_distance",
     "episode_final_ee_cube_distance",
@@ -98,6 +99,7 @@ class TrainingMetricsCallback(BaseCallback):
         values = self.episode_values[env_idx]
         values["cube_lift_height"].append(metric.cube_lift_height)
         values["ee_cube_distance"].append(metric.ee_cube_distance)
+        values["cube_out_of_workspace"].append(float(metric.cube_out_of_workspace))
 
         if self.n_calls % self.save_freq == 0 and self.step_logger is not None:
             self.step_logger.write_step(metric)
@@ -116,9 +118,16 @@ class TrainingMetricsCallback(BaseCallback):
         self.logger.record_mean("env/ee_cube_distance", metric.ee_cube_distance)
         self.logger.record_mean("env/dist_cube_target", metric.dist_cube_target)
         self.logger.record_mean("env/reward_dist", metric.reward_dist)
+        self.logger.record_mean("env/reward_pregrasp", metric.reward_pregrasp)
+        self.logger.record_mean("env/reward_xy_align", metric.reward_xy_align)
+        self.logger.record_mean("env/reward_height_align", metric.reward_height_align)
+        self.logger.record_mean("env/reward_close_gripper", metric.reward_close_gripper)
         self.logger.record_mean("env/reward_lift", metric.reward_lift)
         self.logger.record_mean("env/reward_target", metric.reward_target)
         self.logger.record_mean("env/reward_action_penalty", metric.reward_action_penalty)
+        self.logger.record_mean("env/xy_dist", metric.xy_dist)
+        self.logger.record_mean("env/height_error", metric.height_error)
+        self.logger.record_mean("env/cube_out_of_workspace", float(metric.cube_out_of_workspace))
         self.logger.record_mean("env/is_success", float(metric.is_success))
 
     def _write_episode(self, env_idx: int, final_metric: Any) -> None:
@@ -126,6 +135,7 @@ class TrainingMetricsCallback(BaseCallback):
             return
         lift_values = _finite_values(self.episode_values[env_idx]["cube_lift_height"])
         distance_values = _finite_values(self.episode_values[env_idx]["ee_cube_distance"])
+        out_values = _finite_values(self.episode_values[env_idx]["cube_out_of_workspace"])
         max_lift = max(lift_values) if lift_values else math.nan
         mean_distance = float(np.mean(distance_values)) if distance_values else math.nan
         row = {
@@ -134,6 +144,7 @@ class TrainingMetricsCallback(BaseCallback):
             "episode_reward": self.episode_rewards[env_idx],
             "episode_length": self.episode_steps[env_idx],
             "episode_success": bool(final_metric.is_success),
+            "episode_cube_out_of_workspace": bool(final_metric.cube_out_of_workspace or any(out_values)),
             "episode_max_cube_lift_height": max_lift,
             "episode_mean_ee_cube_distance": mean_distance,
             "episode_final_ee_cube_distance": final_metric.ee_cube_distance,

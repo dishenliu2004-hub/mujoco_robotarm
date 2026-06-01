@@ -16,15 +16,22 @@ class StepMetric:
     episode_step: int
     reward: float
     is_success: bool
+    cube_out_of_workspace: bool
     cube_height: float
     cube_lift_height: float
     ee_cube_distance: float
     dist_cube_target: float
     gripper_open: float
     reward_dist: float
+    reward_pregrasp: float
+    reward_xy_align: float
+    reward_height_align: float
+    reward_close_gripper: float
     reward_lift: float
     reward_target: float
     reward_action_penalty: float
+    xy_dist: float
+    height_error: float
 
 
 class CsvMetricLogger:
@@ -42,6 +49,7 @@ class CsvMetricLogger:
     def write_step(self, metric: StepMetric) -> None:
         row = asdict(metric)
         row["is_success"] = bool(row["is_success"])
+        row["cube_out_of_workspace"] = bool(row["cube_out_of_workspace"])
         self._writer.writerow(row)
 
     def close(self) -> None:
@@ -103,15 +111,22 @@ def step_metric_from_info(
         episode_step=episode_step,
         reward=float(reward),
         is_success=bool(flat.get("is_success", False)),
+        cube_out_of_workspace=bool(flat.get("cube_out_of_workspace", False)),
         cube_height=_float_or_nan(flat.get("cube_height")),
         cube_lift_height=_float_or_nan(flat.get("cube_lift_height")),
         ee_cube_distance=_float_or_nan(flat.get("ee_cube_distance")),
         dist_cube_target=_float_or_nan(flat.get("dist_cube_target")),
         gripper_open=_float_or_nan(flat.get("gripper_open")),
         reward_dist=_float_or_nan(flat.get("reward_dist")),
+        reward_pregrasp=_float_or_nan(flat.get("reward_pregrasp")),
+        reward_xy_align=_float_or_nan(flat.get("reward_xy_align")),
+        reward_height_align=_float_or_nan(flat.get("reward_height_align")),
+        reward_close_gripper=_float_or_nan(flat.get("reward_close_gripper")),
         reward_lift=_float_or_nan(flat.get("reward_lift")),
         reward_target=_float_or_nan(flat.get("reward_target")),
         reward_action_penalty=_float_or_nan(flat.get("reward_action_penalty")),
+        xy_dist=_float_or_nan(flat.get("xy_dist")),
+        height_error=_float_or_nan(flat.get("height_error")),
     )
 
 

@@ -176,3 +176,24 @@ python evaluate.py --no-render
 ```
 
 如果训练很久仍抓不起来，可以先增加训练步数到 `1000000`，或者降低随机化范围，把 `src/ur5_grasp_env/env.py` 中 `_sample_cube_xy` 的范围缩小，让策略先学会固定位置抓取。
+
+## 性能修复说明
+
+本版本修复了只按方块高度判断成功导致的假成功问题：成功现在要求方块被抬高、夹爪仍靠近方块，并且方块没有异常飞高。环境还新增了 `cube_out_of_workspace` 终止条件，方块飞出、掉落或远离夹爪时会提前结束 episode 并给予惩罚。
+
+奖励函数改为阶段式奖励，包含 `reward_pregrasp`、`reward_xy_align`、`reward_height_align`、`reward_close_gripper`、`reward_lift`、`reward_target` 和 `reward_action_penalty`。训练脚本新增课程学习参数 `--curriculum-level`，默认从更小的方块随机范围开始训练；PPO 默认参数也调整为更稳的长 horizon、较小学习率和较小 clip range。
+
+推荐先跑课程 0：
+
+```powershell
+python train.py --log-dir runs/ppo_fix_curriculum_0 --total-timesteps 500000 --n-envs 4 --curriculum-level 0 --plot-after-train
+python evaluate.py --model runs/ppo_fix_curriculum_0/best_model/best_model.zip --episodes 40 --no-render --deterministic --plot-after-eval
+```
+
+稳定后扩大采样范围：
+
+```powershell
+python train.py --log-dir runs/ppo_fix_curriculum_1 --total-timesteps 800000 --n-envs 4 --curriculum-level 1 --plot-after-train
+```
+
+判断性能是否提升时，重点看 `figures/` 里的图：`train_cube_lift_height.png` 不应再出现 8m 级异常尖峰，`train_ee_cube_distance.png` 不应再出现 10m 到 20m 的异常距离；`eval_final_distance_per_episode.png` 多数回合应低于 0.10m 到 0.15m，`eval_lift_height_per_episode.png` 更稳定，`eval_success_bar.png` 中 Success 数量应增加。`train_reward_terms.png` 和 `train_grasp_phase_terms.png` 用来观察靠近、XY 对齐、高度对齐、闭合夹爪和抬升阶段是否逐步学起来。

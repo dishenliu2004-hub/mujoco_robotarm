@@ -45,6 +45,7 @@ class UR5RobotiqGraspEnv(gym.Env):
         max_episode_steps: int = 250,
         frame_skip: int = 10,
         seed: int | None = None,
+        curriculum_level: int = 0,
     ) -> None:
         super().__init__()
         if render_mode not in (None, "human", "rgb_array"):
@@ -58,10 +59,12 @@ class UR5RobotiqGraspEnv(gym.Env):
         self.render_mode = render_mode
         self.max_episode_steps = max_episode_steps
         self.frame_skip = frame_skip
+        self.curriculum_level = int(curriculum_level)
         self._step_count = 0
         self._viewer = None
         self._renderer = None
         self.rng = np.random.default_rng(seed)
+        self.last_action = np.zeros(7, dtype=np.float64)
 
         self.arm_joint_ids = [self._joint_id(name) for name in self.ARM_JOINTS]
         self.finger_joint_ids = [self._joint_id(name) for name in self.FINGER_JOINTS]
@@ -78,7 +81,7 @@ class UR5RobotiqGraspEnv(gym.Env):
         self.cube_qpos_addr = self.model.jnt_qposadr[self._joint_id("cube_freejoint")]
 
         self.home_qpos = np.array([-0.35, -0.95, 1.45, -1.15, -1.57, 0.0], dtype=np.float64)
-        self.arm_delta = np.array([0.06, 0.06, 0.06, 0.06, 0.08, 0.08], dtype=np.float64)
+        self.arm_delta = np.array([0.035, 0.035, 0.035, 0.035, 0.045, 0.045], dtype=np.float64)
         self.table_top_z = 0.305
         self.success_lift_height = 0.12
 
@@ -102,6 +105,7 @@ class UR5RobotiqGraspEnv(gym.Env):
             self.rng = np.random.default_rng(seed)
 
         self._step_count = 0
+        self.last_action = np.zeros(7, dtype=np.float64)
         mujoco.mj_resetData(self.model, self.data)
 
         noise = self.rng.uniform(-0.04, 0.04, size=6)
@@ -128,6 +132,7 @@ class UR5RobotiqGraspEnv(gym.Env):
     def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
         action = np.asarray(action, dtype=np.float64)
         action = np.clip(action, self.action_space.low, self.action_space.high)
+        self.last_action = action.copy()
         self._step_count += 1
 
         current_qpos = self.data.qpos[self.arm_qpos_addr].copy()
@@ -145,11 +150,13 @@ class UR5RobotiqGraspEnv(gym.Env):
         obs = self._get_obs()
         reward, reward_terms = self._reward()
         success = self._is_success()
-        terminated = success
+        cube_out_of_workspace = self._cube_out_of_workspace()
+        terminated = success or cube_out_of_workspace
         truncated = self._step_count >= self.max_episode_steps
         info = self._info()
         info.update(reward_terms)
-        info["is_success"] = success
+        info["cube_out_of_workspace"] = bool(cube_out_of_workspace)
+        info["is_success"] = bool(success)
 
         if self.render_mode == "human":
             self.render()
@@ -211,42 +218,91 @@ class UR5RobotiqGraspEnv(gym.Env):
         ee_pos = self.data.site_xpos[self.ee_site_id]
         cube_pos = self.data.xpos[self.cube_body_id]
         target_pos = self.data.site_xpos[self.target_site_id]
-        dist_ee_cube = float(np.linalg.norm(ee_pos - cube_pos))
-        dist_cube_target = float(np.linalg.norm(cube_pos - target_pos))
-        lift_height = float(max(0.0, cube_pos[2] - self.table_top_z))
+
         gripper_open = float(np.mean(self.data.qpos[self.finger_qpos_addr]))
-        near_bonus = 1.0 if dist_ee_cube < 0.075 else 0.0
-        close_bonus = 0.5 if dist_ee_cube < 0.07 and gripper_open < 0.022 else 0.0
-        lift_reward = 12.0 * lift_height
-        target_reward = 2.0 * np.exp(-6.0 * dist_cube_target) if lift_height > 0.04 else 0.0
-        action_penalty = 0.002 * float(np.linalg.norm(self.data.ctrl[self.arm_act_ids]))
+        cube_lift_height = float(max(0.0, cube_pos[2] - self.table_top_z))
+        ee_cube_distance = float(np.linalg.norm(ee_pos - cube_pos))
+        dist_cube_target = float(np.linalg.norm(cube_pos - target_pos))
+
+        pregrasp_pos = cube_pos.copy()
+        pregrasp_pos[2] = self.table_top_z + 0.16
+        pregrasp_dist = float(np.linalg.norm(ee_pos - pregrasp_pos))
+        reward_pregrasp = 2.0 * np.exp(-8.0 * pregrasp_dist)
+
+        xy_dist = float(np.linalg.norm(ee_pos[:2] - cube_pos[:2]))
+        reward_xy_align = 2.0 * np.exp(-12.0 * xy_dist)
+
+        grasp_height = self.table_top_z + 0.065
+        height_error = abs(float(ee_pos[2] - grasp_height))
+        reward_height_align = 1.5 * np.exp(-18.0 * height_error)
+
+        is_near_grasp = xy_dist < 0.055 and height_error < 0.055
+        reward_close_gripper = 1.0 if is_near_grasp and gripper_open < 0.025 else 0.0
+
+        reward_lift = 20.0 * cube_lift_height
+        reward_target = 3.0 * np.exp(-6.0 * dist_cube_target) if cube_lift_height > 0.04 else 0.0
+
+        last_action = getattr(self, "last_action", np.zeros(7, dtype=np.float64))
+        action_penalty = 0.01 * float(np.sum(np.square(last_action[:6])))
 
         reward = (
-            -2.5 * dist_ee_cube
-            + near_bonus
-            + close_bonus
-            + lift_reward
-            + target_reward
+            reward_pregrasp
+            + reward_xy_align
+            + reward_height_align
+            + reward_close_gripper
+            + reward_lift
+            + reward_target
             - action_penalty
         )
         if self._is_success():
-            reward += 15.0
+            reward += 25.0
+
+        if self._cube_out_of_workspace():
+            reward -= 30.0
 
         return reward, {
-            "reward_dist": -2.5 * dist_ee_cube,
-            "reward_lift": lift_reward,
-            "reward_target": float(target_reward),
-            "reward_action_penalty": -action_penalty,
+            "reward_dist": float(-ee_cube_distance),
+            "reward_pregrasp": float(reward_pregrasp),
+            "reward_xy_align": float(reward_xy_align),
+            "reward_height_align": float(reward_height_align),
+            "reward_close_gripper": float(reward_close_gripper),
+            "reward_lift": float(reward_lift),
+            "reward_target": float(reward_target),
+            "reward_action_penalty": float(-action_penalty),
             "cube_height": float(cube_pos[2]),
-            "cube_lift_height": lift_height,
-            "ee_cube_distance": dist_ee_cube,
-            "dist_cube_target": dist_cube_target,
-            "gripper_open": gripper_open,
+            "cube_lift_height": float(cube_lift_height),
+            "ee_cube_distance": float(ee_cube_distance),
+            "dist_cube_target": float(dist_cube_target),
+            "gripper_open": float(gripper_open),
+            "xy_dist": float(xy_dist),
+            "height_error": float(height_error),
         }
 
     def _is_success(self) -> bool:
-        cube_z = float(self.data.xpos[self.cube_body_id][2])
-        return cube_z > self.table_top_z + self.success_lift_height
+        ee_pos = self.data.site_xpos[self.ee_site_id]
+        cube_pos = self.data.xpos[self.cube_body_id]
+
+        cube_lift_height = float(cube_pos[2] - self.table_top_z)
+        ee_cube_distance = float(np.linalg.norm(ee_pos - cube_pos))
+
+        return (
+            cube_lift_height > self.success_lift_height
+            and ee_cube_distance < 0.10
+            and cube_pos[2] < self.table_top_z + 0.45
+        )
+
+    def _cube_out_of_workspace(self) -> bool:
+        ee_pos = self.data.site_xpos[self.ee_site_id]
+        cube_pos = self.data.xpos[self.cube_body_id]
+        ee_cube_distance = float(np.linalg.norm(ee_pos - cube_pos))
+
+        return (
+            cube_pos[2] > self.table_top_z + 0.60
+            or cube_pos[2] < self.table_top_z - 0.05
+            or abs(cube_pos[0]) > 1.2
+            or abs(cube_pos[1]) > 1.2
+            or ee_cube_distance > 1.5
+        )
 
     def _info(self) -> dict[str, Any]:
         ee_pos = self.data.site_xpos[self.ee_site_id].copy()
@@ -257,6 +313,7 @@ class UR5RobotiqGraspEnv(gym.Env):
         return {
             "step": self._step_count,
             "is_success": bool(self._is_success()),
+            "cube_out_of_workspace": bool(self._cube_out_of_workspace()),
             "cube_pos": cube_pos,
             "ee_pos": ee_pos,
             "cube_height": float(cube_pos[2]),
@@ -287,8 +344,23 @@ class UR5RobotiqGraspEnv(gym.Env):
             if cube_xy.shape != (2,):
                 raise ValueError("options['cube_xy'] must be a 2D position.")
             return cube_xy
-        x = self.rng.uniform(0.42, 0.60)
-        y = self.rng.uniform(-0.16, 0.16)
+
+        level = self.curriculum_level
+        if options and "curriculum_level" in options:
+            level = int(options["curriculum_level"])
+
+        if level <= 0:
+            x = self.rng.uniform(0.49, 0.53)
+            y = self.rng.uniform(-0.03, 0.03)
+        elif level == 1:
+            x = self.rng.uniform(0.46, 0.56)
+            y = self.rng.uniform(-0.08, 0.08)
+        elif level == 2:
+            x = self.rng.uniform(0.43, 0.59)
+            y = self.rng.uniform(-0.12, 0.12)
+        else:
+            x = self.rng.uniform(0.42, 0.60)
+            y = self.rng.uniform(-0.16, 0.16)
         return np.array([x, y], dtype=np.float64)
 
     def _joint_id(self, name: str) -> int:

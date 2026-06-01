@@ -22,15 +22,22 @@ def test_csv_metric_logger_writes_header_and_rows(tmp_path: Path) -> None:
             episode_step=1,
             reward=0.5,
             is_success=False,
+            cube_out_of_workspace=False,
             cube_height=0.33,
             cube_lift_height=0.02,
             ee_cube_distance=0.1,
             dist_cube_target=0.2,
             gripper_open=0.03,
             reward_dist=-0.2,
+            reward_pregrasp=0.4,
+            reward_xy_align=0.3,
+            reward_height_align=0.2,
+            reward_close_gripper=0.0,
             reward_lift=0.1,
             reward_target=0.0,
             reward_action_penalty=-0.01,
+            xy_dist=0.05,
+            height_error=0.02,
         )
     )
     logger.close()
@@ -41,6 +48,8 @@ def test_csv_metric_logger_writes_header_and_rows(tmp_path: Path) -> None:
     assert rows[0]["global_step"] == "1"
     assert rows[0]["cube_lift_height"] == "0.02"
     assert "reward_action_penalty" in rows[0]
+    assert "reward_pregrasp" in rows[0]
+    assert rows[0]["cube_out_of_workspace"] == "False"
 
 
 def test_flatten_info_splits_positions() -> None:

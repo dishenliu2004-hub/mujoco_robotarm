@@ -16,12 +16,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--n-envs", type=int, default=4)
     parser.add_argument("--eval-episodes", type=int, default=30)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--learning-rate", type=float, default=3e-4)
-    parser.add_argument("--gamma", type=float, default=0.98)
-    parser.add_argument("--ent-coef", type=float, default=0.002)
-    parser.add_argument("--clip-range", type=float, default=0.2)
-    parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--n-steps", type=int, default=1024)
+    parser.add_argument("--curriculum-level", type=int, default=0)
+    parser.add_argument("--max-episode-steps", type=int, default=250)
+    parser.add_argument("--learning-rate", type=float, default=2e-4)
+    parser.add_argument("--gamma", type=float, default=0.995)
+    parser.add_argument("--ent-coef", type=float, default=0.001)
+    parser.add_argument("--clip-range", type=float, default=0.15)
+    parser.add_argument("--batch-size", type=int, default=512)
+    parser.add_argument("--n-steps", type=int, default=2048)
+    parser.add_argument("--n-epochs", type=int, default=10)
+    parser.add_argument("--gae-lambda", type=float, default=0.95)
+    parser.add_argument("--vf-coef", type=float, default=0.5)
+    parser.add_argument("--target-kl", type=float, default=0.03)
     return parser.parse_args()
 
 
@@ -41,6 +47,10 @@ def main() -> None:
         str(args.eval_episodes),
         "--seed",
         str(args.seed),
+        "--curriculum-level",
+        str(args.curriculum_level),
+        "--max-episode-steps",
+        str(args.max_episode_steps),
         "--learning-rate",
         str(args.learning_rate),
         "--gamma",
@@ -53,6 +63,14 @@ def main() -> None:
         str(args.batch_size),
         "--n-steps",
         str(args.n_steps),
+        "--n-epochs",
+        str(args.n_epochs),
+        "--gae-lambda",
+        str(args.gae_lambda),
+        "--vf-coef",
+        str(args.vf_coef),
+        "--target-kl",
+        str(args.target_kl),
         "--plot-after-train",
     ]
     _run(train_cmd)
@@ -71,6 +89,10 @@ def main() -> None:
         "--deterministic",
         "--csv-path",
         str(log_dir / "metrics" / "eval_episode_metrics.csv"),
+        "--curriculum-level",
+        str(args.curriculum_level),
+        "--max-episode-steps",
+        str(args.max_episode_steps),
         "--plot-after-eval",
     ]
     _run(eval_cmd)

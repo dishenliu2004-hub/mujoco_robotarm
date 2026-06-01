@@ -21,18 +21,41 @@ from ur5_grasp_env.callbacks import TrainingMetricsCallback
 from ur5_grasp_env.plotting import plot_training_curves
 
 
-def make_env(seed: int, rank: int, render_mode: str | None = None):
+def make_env(
+    seed: int,
+    rank: int,
+    render_mode: str | None = None,
+    curriculum_level: int = 0,
+    max_episode_steps: int = 250,
+):
     def _init():
-        env = UR5RobotiqGraspEnv(render_mode=render_mode, seed=seed + rank)
+        env = UR5RobotiqGraspEnv(
+            render_mode=render_mode,
+            seed=seed + rank,
+            curriculum_level=curriculum_level,
+            max_episode_steps=max_episode_steps,
+        )
         return Monitor(env)
 
     return _init
 
 
-def build_vec_env(n_envs: int, seed: int):
+def build_vec_env(n_envs: int, seed: int, curriculum_level: int, max_episode_steps: int):
     if n_envs <= 1:
-        return VecMonitor(DummyVecEnv([make_env(seed, 0)]))
-    return VecMonitor(SubprocVecEnv([make_env(seed, rank) for rank in range(n_envs)]))
+        return VecMonitor(DummyVecEnv([make_env(seed, 0, curriculum_level=curriculum_level, max_episode_steps=max_episode_steps)]))
+    return VecMonitor(
+        SubprocVecEnv(
+            [
+                make_env(
+                    seed,
+                    rank,
+                    curriculum_level=curriculum_level,
+                    max_episode_steps=max_episode_steps,
+                )
+                for rank in range(n_envs)
+            ]
+        )
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -49,12 +72,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--save-metrics-freq", type=int, default=1)
     parser.add_argument("--eval-episodes", type=int, default=10)
     parser.add_argument("--eval-freq", type=int, default=10_000)
-    parser.add_argument("--learning-rate", type=float, default=3e-4)
-    parser.add_argument("--gamma", type=float, default=0.98)
-    parser.add_argument("--ent-coef", type=float, default=0.002)
-    parser.add_argument("--clip-range", type=float, default=0.2)
-    parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--n-steps", type=int, default=1024)
+    parser.add_argument("--curriculum-level", type=int, default=0)
+    parser.add_argument("--max-episode-steps", type=int, default=250)
+    parser.add_argument("--learning-rate", type=float, default=2e-4)
+    parser.add_argument("--gamma", type=float, default=0.995)
+    parser.add_argument("--ent-coef", type=float, default=0.001)
+    parser.add_argument("--clip-range", type=float, default=0.15)
+    parser.add_argument("--batch-size", type=int, default=512)
+    parser.add_argument("--n-steps", type=int, default=2048)
+    parser.add_argument("--n-epochs", type=int, default=10)
+    parser.add_argument("--gae-lambda", type=float, default=0.95)
+    parser.add_argument("--vf-coef", type=float, default=0.5)
+    parser.add_argument("--target-kl", type=float, default=0.03)
     return parser.parse_args()
 
 
@@ -67,11 +96,37 @@ def main() -> None:
     (args.log_dir / "eval").mkdir(parents=True, exist_ok=True)
     (args.log_dir / "tensorboard").mkdir(parents=True, exist_ok=True)
 
-    if args.check_env:
-        check_env(UR5RobotiqGraspEnv(seed=args.seed), warn=True, skip_render_check=True)
+    rollout_batch = args.n_steps * max(args.n_envs, 1)
+    if rollout_batch < args.batch_size:
+        raise ValueError(
+            f"Invalid PPO batch config: n_steps * n_envs = {rollout_batch} "
+            f"must be >= batch_size = {args.batch_size}."
+        )
 
-    env = build_vec_env(args.n_envs, args.seed)
-    eval_env = VecMonitor(DummyVecEnv([make_env(args.seed + 10_000, 0)]))
+    if args.check_env:
+        check_env(
+            UR5RobotiqGraspEnv(
+                seed=args.seed,
+                curriculum_level=args.curriculum_level,
+                max_episode_steps=args.max_episode_steps,
+            ),
+            warn=True,
+            skip_render_check=True,
+        )
+
+    env = build_vec_env(args.n_envs, args.seed, args.curriculum_level, args.max_episode_steps)
+    eval_env = VecMonitor(
+        DummyVecEnv(
+            [
+                make_env(
+                    args.seed + 10_000,
+                    0,
+                    curriculum_level=args.curriculum_level,
+                    max_episode_steps=args.max_episode_steps,
+                )
+            ]
+        )
+    )
 
     model = PPO(
         "MlpPolicy",
@@ -82,11 +137,17 @@ def main() -> None:
         learning_rate=args.learning_rate,
         n_steps=args.n_steps,
         batch_size=args.batch_size,
-        n_epochs=10,
+        n_epochs=args.n_epochs,
         gamma=args.gamma,
-        gae_lambda=0.95,
+        gae_lambda=args.gae_lambda,
         clip_range=args.clip_range,
         ent_coef=args.ent_coef,
+        vf_coef=args.vf_coef,
+        target_kl=args.target_kl,
+        policy_kwargs=dict(
+            net_arch=dict(pi=[256, 256], vf=[256, 256]),
+            log_std_init=-1.0,
+        ),
     )
     logger_formats = ["stdout"]
     if args.csv_log:

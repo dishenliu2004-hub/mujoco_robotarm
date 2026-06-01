@@ -82,7 +82,10 @@ def plot_training_curves(
 
     step_df = _read_csv(step_csv)
     reward_cols = [
-        "reward_dist",
+        "reward_pregrasp",
+        "reward_xy_align",
+        "reward_height_align",
+        "reward_close_gripper",
         "reward_lift",
         "reward_target",
         "reward_action_penalty",
@@ -102,6 +105,28 @@ def plot_training_curves(
         )
     else:
         print(f"Skipping reward term plot; missing or incomplete {step_csv}")
+
+    phase_cols = [
+        "xy_dist",
+        "height_error",
+        "ee_cube_distance",
+        "cube_lift_height",
+    ]
+    if step_df is not None and all(col in step_df for col in phase_cols):
+        saved.append(
+            _multi_line_plot(
+                step_df,
+                "global_step",
+                phase_cols,
+                "Training Grasp Phase Terms",
+                "Global step",
+                "Value (m)",
+                output_dir / "train_grasp_phase_terms.png",
+                smoothing_window,
+            )
+        )
+    else:
+        print(f"Skipping grasp phase plot; missing or incomplete {step_csv}")
 
     if eval_npz.exists():
         with np.load(eval_npz) as data:
@@ -219,15 +244,52 @@ def plot_evaluation_curves(
     step_df = _read_csv(step_csv)
     if step_df is not None and {"episode_step", "ee_cube_distance", "cube_lift_height"}.issubset(step_df.columns):
         fig, ax1 = plt.subplots(figsize=(9, 5))
-        x = step_df["episode_step"]
-        ax1.plot(x, step_df["ee_cube_distance"], label="EE-cube distance", color="#2563eb", alpha=0.8)
+        if "episode" in step_df:
+            groups = step_df.groupby("episode")
+        else:
+            groups = [(0, step_df)]
+        for _, group in groups:
+            ax1.plot(
+                group["episode_step"],
+                group["ee_cube_distance"],
+                color="#2563eb",
+                alpha=0.18,
+                linewidth=1.0,
+            )
         ax1.set_xlabel("Episode step")
         ax1.set_ylabel("Distance (m)")
         ax2 = ax1.twinx()
-        ax2.plot(x, step_df["cube_lift_height"], label="Cube lift height", color="#dc2626", alpha=0.8)
+        for _, group in groups:
+            ax2.plot(
+                group["episode_step"],
+                group["cube_lift_height"],
+                color="#dc2626",
+                alpha=0.14,
+                linewidth=1.0,
+            )
+        mean_by_step = (
+            step_df.groupby("episode_step")
+            .agg({"ee_cube_distance": "mean", "cube_lift_height": "mean"})
+            .reset_index()
+        )
+        ax1.plot(
+            mean_by_step["episode_step"],
+            mean_by_step["ee_cube_distance"],
+            label="mean EE-cube distance",
+            color="#1d4ed8",
+            linewidth=2.5,
+        )
+        ax2.plot(
+            mean_by_step["episode_step"],
+            mean_by_step["cube_lift_height"],
+            label="mean cube lift height",
+            color="#b91c1c",
+            linewidth=2.5,
+        )
         ax2.set_ylabel("Lift height (m)")
         lines = ax1.get_lines() + ax2.get_lines()
-        ax1.legend(lines, [line.get_label() for line in lines], loc="best")
+        labeled_lines = [line for line in lines if not line.get_label().startswith("_")]
+        ax1.legend(labeled_lines, [line.get_label() for line in labeled_lines], loc="best")
         ax1.set_title("Evaluation Step Distance and Height")
         ax1.grid(True, alpha=0.25)
         path = output_dir / "eval_step_distance_height.png"

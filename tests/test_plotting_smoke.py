@@ -34,14 +34,21 @@ def test_plotting_smoke_generates_pngs(tmp_path: Path) -> None:
         metrics_dir / "train_step_metrics.csv",
         [
             "global_step",
-            "reward_dist",
+            "reward_pregrasp",
+            "reward_xy_align",
+            "reward_height_align",
+            "reward_close_gripper",
             "reward_lift",
             "reward_target",
             "reward_action_penalty",
+            "xy_dist",
+            "height_error",
+            "ee_cube_distance",
+            "cube_lift_height",
         ],
         [
-            [1, -0.2, 0.0, 0.0, -0.01],
-            [2, -0.1, 0.3, 0.2, -0.02],
+            [1, 0.2, 0.3, 0.1, 0.0, 0.0, 0.0, -0.01, 0.10, 0.04, 0.20, 0.01],
+            [2, 0.4, 0.5, 0.2, 1.0, 0.3, 0.2, -0.02, 0.04, 0.02, 0.08, 0.13],
         ],
     )
     _write_csv(
@@ -68,7 +75,9 @@ def test_plotting_smoke_generates_pngs(tmp_path: Path) -> None:
     eval_paths = plot_evaluation_curves(log_dir)
 
     assert log_dir / "figures" / "train_episode_reward.png" in train_paths
+    assert log_dir / "figures" / "train_grasp_phase_terms.png" in train_paths
     assert log_dir / "figures" / "eval_episode_reward.png" in eval_paths
+    assert log_dir / "figures" / "eval_step_distance_height.png" in eval_paths
     assert all(path.exists() for path in train_paths + eval_paths)
 
 
