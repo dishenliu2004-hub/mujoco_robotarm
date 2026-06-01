@@ -1,0 +1,105 @@
+<mujoco model="ur5_robotiq85_grasp">
+  <compiler angle="radian" coordinate="local" inertiafromgeom="true"/>
+  <option timestep="0.002" iterations="50" solver="Newton" gravity="0 0 -9.81"/>
+
+  <default>
+    <joint damping="1.2" armature="0.02" limited="true"/>
+    <geom condim="4" friction="1.2 0.08 0.005" solref="0.01 1" solimp="0.95 0.99 0.001"/>
+    <default class="visual">
+      <geom contype="0" conaffinity="0"/>
+    </default>
+  </default>
+
+  <asset>
+    <texture name="grid" type="2d" builtin="checker" width="512" height="512" rgb1="0.82 0.84 0.86" rgb2="0.62 0.65 0.68"/>
+    <material name="floor_mat" texture="grid" texrepeat="6 6" reflectance="0.15"/>
+    <material name="robot_mat" rgba="0.72 0.76 0.80 1"/>
+    <material name="joint_mat" rgba="0.12 0.16 0.20 1"/>
+    <material name="finger_mat" rgba="0.08 0.09 0.10 1"/>
+    <material name="cube_mat" rgba="0.96 0.38 0.22 1"/>
+    <material name="target_mat" rgba="0.12 0.70 0.48 0.35"/>
+    <material name="table_mat" rgba="0.56 0.56 0.52 1"/>
+  </asset>
+
+  <worldbody>
+    <light name="key" pos="0.2 -0.7 2.0" dir="-0.2 0.5 -1" diffuse="0.9 0.9 0.9"/>
+    <light name="fill" pos="-1.0 0.6 1.4" dir="0.8 -0.2 -1" diffuse="0.25 0.25 0.25"/>
+    <camera name="track" mode="targetbody" target="cube" pos="1.25 -1.05 0.85" xyaxes="0.64 0.77 0 -0.30 0.25 0.92"/>
+
+    <geom name="floor" type="plane" size="2.0 2.0 0.02" material="floor_mat"/>
+    <body name="table" pos="0.54 0 0.275">
+      <geom name="table_top" type="box" size="0.42 0.42 0.03" material="table_mat"/>
+    </body>
+    <site name="lift_target" pos="0.52 0 0.50" size="0.035" type="sphere" material="target_mat"/>
+
+    <body name="ur5_base" pos="0 0 0.335">
+      <geom name="base" type="cylinder" size="0.075 0.045" material="joint_mat"/>
+
+      <body name="shoulder_link" pos="0 0 0.08">
+        <joint name="shoulder_pan_joint" type="hinge" axis="0 0 1" range="-3.1416 3.1416"/>
+        <geom name="shoulder" type="cylinder" size="0.07 0.055" material="joint_mat"/>
+
+        <body name="upper_arm_link" pos="0 0 0.055">
+          <joint name="shoulder_lift_joint" type="hinge" axis="0 1 0" range="-2.6 2.6"/>
+          <geom name="upper_arm" type="capsule" fromto="0 0 0 0.35 0 0" size="0.035" material="robot_mat"/>
+
+          <body name="forearm_link" pos="0.35 0 0">
+            <joint name="elbow_joint" type="hinge" axis="0 1 0" range="-2.8 2.8"/>
+            <geom name="elbow" type="sphere" size="0.055" material="joint_mat"/>
+            <geom name="forearm" type="capsule" fromto="0 0 0 0.31 0 0" size="0.031" material="robot_mat"/>
+
+            <body name="wrist_1_link" pos="0.31 0 0">
+              <joint name="wrist_1_joint" type="hinge" axis="0 1 0" range="-3.1416 3.1416"/>
+              <geom name="wrist_1" type="capsule" fromto="0 0 0 0.085 0 0" size="0.028" material="joint_mat"/>
+
+              <body name="wrist_2_link" pos="0.085 0 0">
+                <joint name="wrist_2_joint" type="hinge" axis="0 0 1" range="-3.1416 3.1416"/>
+                <geom name="wrist_2" type="capsule" fromto="0 0 0 0.075 0 0" size="0.026" material="joint_mat"/>
+
+                <body name="wrist_3_link" pos="0.075 0 0">
+                  <joint name="wrist_3_joint" type="hinge" axis="0 1 0" range="-3.1416 3.1416"/>
+                  <geom name="wrist_3" type="capsule" fromto="0 0 0 0.065 0 0" size="0.024" material="joint_mat"/>
+
+                  <body name="robotiq85" pos="0.07 0 0">
+                    <geom name="palm" type="box" pos="0.025 0 0" size="0.026 0.055 0.025" material="finger_mat"/>
+                    <site name="pinch_site" pos="0.105 0 0" size="0.012" rgba="0.1 0.7 1 1"/>
+
+                    <body name="left_finger" pos="0.055 0.024 0">
+                      <joint name="left_finger_joint" type="slide" axis="0 1 0" range="0 0.04" damping="3"/>
+                      <geom name="left_finger_pad" type="box" pos="0.04 0 0" size="0.045 0.010 0.028" material="finger_mat"/>
+                    </body>
+
+                    <body name="right_finger" pos="0.055 -0.024 0">
+                      <joint name="right_finger_joint" type="slide" axis="0 -1 0" range="0 0.04" damping="3"/>
+                      <geom name="right_finger_pad" type="box" pos="0.04 0 0" size="0.045 0.010 0.028" material="finger_mat"/>
+                    </body>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <body name="cube" pos="0.52 0 0.331">
+      <freejoint name="cube_freejoint"/>
+      <geom name="cube_geom" type="box" size="0.026 0.026 0.026" mass="0.08" material="cube_mat"/>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <position name="shoulder_pan" joint="shoulder_pan_joint" kp="80" ctrlrange="-3.1416 3.1416"/>
+    <position name="shoulder_lift" joint="shoulder_lift_joint" kp="80" ctrlrange="-2.6 2.6"/>
+    <position name="elbow" joint="elbow_joint" kp="70" ctrlrange="-2.8 2.8"/>
+    <position name="wrist_1" joint="wrist_1_joint" kp="45" ctrlrange="-3.1416 3.1416"/>
+    <position name="wrist_2" joint="wrist_2_joint" kp="35" ctrlrange="-3.1416 3.1416"/>
+    <position name="wrist_3" joint="wrist_3_joint" kp="35" ctrlrange="-3.1416 3.1416"/>
+    <position name="left_finger" joint="left_finger_joint" kp="160" ctrlrange="0 0.04"/>
+    <position name="right_finger" joint="right_finger_joint" kp="160" ctrlrange="0 0.04"/>
+  </actuator>
+
+  <keyframe>
+    <key name="home" qpos="-0.35 -0.95 1.45 -1.15 -1.57 0 0.038 0.038 0.52 0 0.331 1 0 0 0"/>
+  </keyframe>
+</mujoco>
