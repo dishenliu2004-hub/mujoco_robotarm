@@ -1,5 +1,64 @@
 # MuJoCo UR5 + Robotiq85 PPO 抓取训练
 
+## 训练与测试结果可视化
+
+训练并自动画图：
+```powershell
+python train.py --total-timesteps 300000 --n-envs 4 --plot-after-train
+```
+
+打开 TensorBoard：
+```powershell
+tensorboard --logdir runs/ppo_ur5_grasp/tensorboard
+```
+
+评估并自动画图：
+```powershell
+python evaluate.py --model runs/ppo_ur5_grasp/best_model/best_model.zip --episodes 30 --no-render --deterministic --plot-after-eval
+```
+
+单独重新画训练图：
+```powershell
+python scripts/plot_training.py --log-dir runs/ppo_ur5_grasp
+```
+
+单独重新画测试图：
+```powershell
+python scripts/plot_evaluation.py --log-dir runs/ppo_ur5_grasp
+```
+
+对比多个实验：
+```powershell
+python scripts/compare_experiments.py --experiments runs/ppo_baseline runs/ppo_rrt_hybrid --labels "Pure PPO" "RRT + PPO" --output-dir runs/comparison_figures
+```
+
+一键实验：
+```powershell
+python scripts/run_experiment.py --name ppo_baseline --total-timesteps 300000 --n-envs 4 --eval-episodes 30
+```
+
+CSV 指标默认写入：
+- `runs/ppo_ur5_grasp/metrics/train_step_metrics.csv`
+- `runs/ppo_ur5_grasp/metrics/train_episode_metrics.csv`
+- `runs/ppo_ur5_grasp/metrics/eval_step_metrics.csv`
+- `runs/ppo_ur5_grasp/metrics/eval_episode_metrics.csv`
+
+PNG 图像默认写入 `runs/ppo_ur5_grasp/figures/`：
+- `train_episode_reward.png`：训练回合奖励变化
+- `train_success_rate.png`：训练成功率变化
+- `train_cube_lift_height.png`：方块最大抬升高度变化
+- `train_ee_cube_distance.png`：夹爪和方块距离变化
+- `train_reward_terms.png`：奖励函数各部分贡献
+- `train_eval_mean_reward.png`：训练期间评估平均奖励变化
+- `train_ppo_losses.png`：PPO policy/value/entropy/approx_kl/clip_fraction 等诊断曲线
+- `eval_episode_reward.png`：每个测试回合奖励
+- `eval_success_bar.png`：测试成功/失败统计
+- `eval_lift_height_per_episode.png`：每个测试回合最大抬升高度
+- `eval_final_distance_per_episode.png`：每个测试回合最终夹爪-方块距离
+- `eval_step_distance_height.png`：测试过程中距离和抬升高度随 step 的变化
+
+如果曲线不明显，优先把训练步数增加到 `1000000` 或更高；也可以降低 `--learning-rate`（例如 `1e-4`）、略增 `--ent-coef` 鼓励探索，或先缩小 `env.py` 中 `_sample_cube_xy` 的采样范围，让策略先学会更稳定的基础抓取。
+
 这个文件夹里是一套可以直接运行的 MuJoCo 抓取训练工程：
 
 - `assets/ur5_robotiq85_scene.xml`：UR5 + Robotiq85 风格夹爪 + 方块 + 桌面的 MJCF 场景

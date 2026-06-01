@@ -88,6 +88,10 @@
     </body>
   </worldbody>
 
+  <contact>
+    <exclude body1="left_finger" body2="right_finger"/>
+  </contact>
+
   <actuator>
     <position name="shoulder_pan" joint="shoulder_pan_joint" kp="80" ctrlrange="-3.1416 3.1416"/>
     <position name="shoulder_lift" joint="shoulder_lift_joint" kp="80" ctrlrange="-2.6 2.6"/>

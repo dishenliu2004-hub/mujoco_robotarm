@@ -236,8 +236,12 @@ class UR5RobotiqGraspEnv(gym.Env):
             "reward_dist": -2.5 * dist_ee_cube,
             "reward_lift": lift_reward,
             "reward_target": float(target_reward),
+            "reward_action_penalty": -action_penalty,
             "cube_height": float(cube_pos[2]),
+            "cube_lift_height": lift_height,
             "ee_cube_distance": dist_ee_cube,
+            "dist_cube_target": dist_cube_target,
+            "gripper_open": gripper_open,
         }
 
     def _is_success(self) -> bool:
@@ -245,10 +249,22 @@ class UR5RobotiqGraspEnv(gym.Env):
         return cube_z > self.table_top_z + self.success_lift_height
 
     def _info(self) -> dict[str, Any]:
+        ee_pos = self.data.site_xpos[self.ee_site_id].copy()
+        cube_pos = self.data.xpos[self.cube_body_id].copy()
+        target_pos = self.data.site_xpos[self.target_site_id].copy()
+        reward, reward_terms = self._reward()
+        del reward
         return {
             "step": self._step_count,
-            "cube_pos": self.data.xpos[self.cube_body_id].copy(),
-            "ee_pos": self.data.site_xpos[self.ee_site_id].copy(),
+            "is_success": bool(self._is_success()),
+            "cube_pos": cube_pos,
+            "ee_pos": ee_pos,
+            "cube_height": float(cube_pos[2]),
+            "cube_lift_height": float(max(0.0, cube_pos[2] - self.table_top_z)),
+            "ee_cube_distance": float(np.linalg.norm(ee_pos - cube_pos)),
+            "dist_cube_target": float(np.linalg.norm(cube_pos - target_pos)),
+            "gripper_open": float(np.mean(self.data.qpos[self.finger_qpos_addr])),
+            **reward_terms,
         }
 
     def _set_initial_ctrl(self) -> None:
